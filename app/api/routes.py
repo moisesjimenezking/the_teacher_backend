@@ -7,23 +7,30 @@ from app.services.transcription import get_transcription_service
 from app.services.tts import get_tts_service
 from app.agents.english_teacher import get_english_teacher
 
-router = APIRouter()
+URL_PREFIX = "/api/v1/teacher"
+
+# ── Sub-routers (like Flask blueprints) ──
+
+health_router = APIRouter(prefix="/health", tags=["health"])
+transcribe_router = APIRouter(prefix="/transcribe", tags=["transcribe"])
+chat_router = APIRouter(tags=["chat"])
+
 _histories: dict[str, list[dict]] = {}
 
 
-@router.get("/health")
+@health_router.get("/")
 async def health():
     return {"status": "ok", "app": "Conversator"}
 
 
-@router.post("/transcribe")
+@transcribe_router.post("/")
 async def transcribe_audio(payload: dict):
     base64_audio = payload.get("audio", "")
     text = get_transcription_service().transcribe_base64(base64_audio)
     return {"text": text}
 
 
-@router.websocket("/ws")
+@chat_router.websocket("/ws")
 async def websocket_chat(websocket: WebSocket):
     await websocket.accept()
 
@@ -90,7 +97,6 @@ async def websocket_chat(websocket: WebSocket):
             content_text = "\n\n".join(p[1] for p in parts) if parts else resp.get("content", str(resp))
 
             # Build the full assistant message for history (includes english phrase taught)
-            # This is critical so the agent knows what was taught for pronunciation comparison
             full_assistant_msg = content_text
             if english_text:
                 full_assistant_msg += f"\n[Frase enseñada: {english_text}]"
@@ -122,3 +128,11 @@ async def websocket_chat(websocket: WebSocket):
         _histories.pop(conn_id, None)
     except Exception:
         _histories.pop(conn_id, None)
+
+
+# ── Main router with versioned prefix ──
+
+router = APIRouter(prefix=URL_PREFIX)
+router.include_router(health_router)
+router.include_router(transcribe_router)
+router.include_router(chat_router)
