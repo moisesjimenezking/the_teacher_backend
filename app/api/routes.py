@@ -1,11 +1,14 @@
 """FastAPI routes — WebSocket for chat, HTTP for health/transcription."""
 
 import json
+import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.services.transcription import get_transcription_service
 from app.services.tts import get_tts_service
 from app.agents.english_teacher import get_english_teacher
+
+logger = logging.getLogger(__name__)
 
 URL_PREFIX = "/api/v1/teacher"
 
@@ -13,7 +16,7 @@ URL_PREFIX = "/api/v1/teacher"
 
 health_router = APIRouter(prefix="/health", tags=["health"])
 transcribe_router = APIRouter(prefix="/transcribe", tags=["transcribe"])
-chat_router = APIRouter(tags=["chat"])
+chat_router = APIRouter(prefix="/chat", tags=["chat"])
 
 _histories: dict[str, list[dict]] = {}
 
@@ -36,6 +39,7 @@ async def websocket_chat(websocket: WebSocket):
 
     conn_id = str(id(websocket))
     _histories[conn_id] = []
+    logger.info(f"WebSocket connected: {conn_id}")
 
     transcription = get_transcription_service()
     tts = get_tts_service()
@@ -65,6 +69,8 @@ async def websocket_chat(websocket: WebSocket):
                 agent_message = f"[Audio transcrito: {user_content}]"
             else:
                 agent_message = user_content
+
+            logger.info(f"Message from {conn_id}: {agent_message[:80]}")
 
             # Save user msg to history
             _histories[conn_id].append({"sender": "user", "content": user_content})
@@ -124,9 +130,11 @@ async def websocket_chat(websocket: WebSocket):
                 "feedback": resp.get("feedback", ""),
             })
 
-    except WebSocketDisconnect:
+    except WebSocketDisconnect as e:
+        logger.info(f"WebSocket disconnected: {conn_id} code={e.code} reason={e.reason}")
         _histories.pop(conn_id, None)
-    except Exception:
+    except Exception as e:
+        logger.error(f"WebSocket error on {conn_id}: {e}", exc_info=True)
         _histories.pop(conn_id, None)
 
 
